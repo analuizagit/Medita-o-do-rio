@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Meditação do Rio</title>
+<style>
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: #f0f0f0;
+    font-family: Arial, sans-serif;
+    margin: 0;
+    height: 100vh;
+    justify-content: center;
+    text-align: center;
+  }
+  canvas { border: 2px solid black; }
+  button {
+    margin-top: 15px;
+    padding: 10px 20px;
+    background: #aaa;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+  }
+  #score { margin-top: 10px; font-size: 20px; font-weight: bold; color: #333; }
+  #message { margin-top: 10px; font-weight: bold; font-size: 18px; color: green; min-height: 24px; }
+  #gameover { margin-top: 5px; font-weight: bold; font-size: 20px; color: blue; min-height: 24px; }
+</style>
+</head>
+<body>
+<div id="message"></div>
+<canvas id="gameCanvas" width="500" height="400"></canvas>
+<button id="growButton">Pensar</button>
+<div id="score">Pontos: 0</div>
+<div id="gameover"></div>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const growButton = document.getElementById("growButton");
+const scoreDiv = document.getElementById("score");
+const messageDiv = document.getElementById("message");
+const gameoverDiv = document.getElementById("gameover");
+
+const groundHeight = 50;
+const groundY = canvas.height - groundHeight;
+
+// Bola
+let ballRadius = 20;
+let ballX = canvas.width / 2;
+let ballY = groundY - ballRadius;
+let growing = false;
+let rolling = false;
+let exploded = false;
+let score = 0;
+
+// Mensagens
+const successMessages = ["Você conseguiu!","Parabéns!","Boa!","Mandou bem!","Continua assim!"];
+const introMessage = "Clique em 'Pensar' para criar uma bolha. Segure para observar, solte para deixar fluir.";
+const holdMessage = "Observe seu pensamento crescendo...";
+const releaseMessage = "Solte... e deixe o rio levar.";
+messageDiv.textContent = introMessage;
+
+let particles = [];
+
+// Áudio com AudioContext para desbloqueio no primeiro toque
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let rioBuffer, inflateBuffer, popBuffer, soltarBuffer;
+let rioSource, inflateSource;
+let audioStarted = false;
+
+// Carregar sons
+async function loadSound(url){
+  const response = await fetch(url);
+  const arrayBuffer = await response.arrayBuffer();
+  return audioCtx.decodeAudioData(arrayBuffer);
+}
+
+// Inicializar sons
+async function initSounds(){
+  rioBuffer = await loadSound('sons/rio.mp3');
+  inflateBuffer = await loadSound('sons/inflar.mp3');
+  popBuffer = await loadSound('sons/pop.mp3');
+}
+
+// Função para tocar som
+function playSound(buffer, loop=false){
+  const source = audioCtx.createBufferSource();
+  source.buffer = buffer;
+  source.loop = loop;
+  source.connect(audioCtx.destination);
+  source.start();
+  return source;
+}
+
+// Desbloquear áudio e tocar rio
+function unlockAudio(){
+  if(!audioStarted){
+    audioCtx.resume().then(()=>{
+      rioSource = playSound(rioBuffer, true);
+      audioStarted = true;
+    });
+  }
+}
+
+// Reset da bolha
+function resetBall() {
+  ballRadius = 20;
+  ballX = canvas.width / 2;
+  ballY = groundY - ballRadius;
+  growing = false;
+  rolling = false;
+  exploded = false;
+  particles = [];
+}
+
+// Fundo gradiente
+let gradientHue = 200;
+function drawBackground() {
+  const gradient = ctx.createLinearGradient(0,0,0,canvas.height);
+  gradient.addColorStop(0, `hsl(${gradientHue}, 50%, 90%)`);
+  gradient.addColorStop(1, `hsl(${gradientHue}, 50%, 70%)`);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  gradientHue += 0.1;
+  if(gradientHue>360) gradientHue=0;
+}
+
+// Chão azul
+function drawGround() {
+  ctx.fillStyle = "lightblue";
+  ctx.fillRect(0, groundY, canvas.width, groundHeight);
+}
+
+// Bola
+function drawBall() {
+  if(!exploded){
+    const gradient = ctx.createRadialGradient(ballX - ballRadius/3, ballY - ballRadius/3, ballRadius/5, ballX, ballY, ballRadius);
+    gradient.addColorStop(0,"rgba(255,255,255,0.9)");
+    gradient.addColorStop(0.8,"rgba(173,216,230,0.5)");
+    gradient.addColorStop(1,"rgba(173,216,230,0.1)");
+    ctx.beginPath();
+    ctx.arc(ballX, ballY, ballRadius, 0, Math.PI*2);
+    ctx.fillStyle = gradient;
+    ctx.fill();
+    ctx.closePath();
+    // Reflexo
+    ctx.beginPath();
+    ctx.arc(ballX - ballRadius/3, ballY - ballRadius/3, ballRadius/5, 0, Math.PI*2);
+    ctx.fillStyle = "rgba(255,255,255,0.6)";
+    ctx.fill();
+    ctx.closePath();
+  }
+}
+
+// Partículas
+function drawParticles() {
+  particles.forEach((p,index)=>{
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,p.size,0,Math.PI*2);
+    ctx.fillStyle = `rgba(255,255,255,${p.alpha})`;
+    ctx.fill();
+    ctx.closePath();
+    p.x += p.vx;
+    p.y += p.vy;
+    p.alpha -= 0.02;
+    if(p.alpha<=0) particles.splice(index,1);
+  });
+}
+
+// Explosão da bolha
+function explodeBall(){
+  for(let i=0;i<30;i++){
+    particles.push({
+      x: ballX,
+      y: ballY,
+      size: Math.random()*5+2,
+      vx: (Math.random()-0.5)*4,
+      vy: (Math.random()-0.5)*4,
+      alpha: 1
+    });
+  }
+}
+
+// Rio rolando
+const img = new Image();
+img.src = 'Imagens/rio.png'; 
+let imgX1=0, imgX2=canvas.width;
+const imgSpeed=2, imgHeight=100, imgY=groundY-40;
+function drawMovingImage(){
+  ctx.drawImage(img,imgX1,imgY,canvas.width,imgHeight);
+  ctx.drawImage(img,imgX2,imgY,canvas.width,imgHeight);
+  imgX1+=imgSpeed; imgX2+=imgSpeed;
+  if(imgX1>=canvas.width) imgX1=imgX2-canvas.width;
+  if(imgX2>=canvas.width) imgX2=imgX1-canvas.width;
+}
+
+// Atualização
+function update(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  drawBackground();
+  drawGround();
+  drawBall();
+  drawMovingImage();
+  drawParticles();
+
+  if(growing && !rolling && !exploded){
+    ballRadius += 0.1;
+    ballY = groundY - ballRadius;
+    if(ballRadius>70){
+      playSound(popBuffer);
+      exploded = true;
+      explodeBall();
+      if(inflateSource) inflateSource.stop();
+      gameoverDiv.textContent="A bolha estourou... respire e tente novamente.";
+      score=0;
+      scoreDiv.textContent="Pontos: "+score;
+      messageDiv.textContent=introMessage;
+    }
+  }
+
+  if(!growing && !rolling && ballRadius>20 && !exploded) rolling=true;
+
+  if(rolling && !exploded){
+    ballX+=3;
+    if(ballX-ballRadius>canvas.width){
+      rolling=false;
+      score++;
+      scoreDiv.textContent="Pontos: "+score;
+      messageDiv.textContent=successMessages[(score-1)%successMessages.length];
+      playSound(popBuffer);
+      resetBall();
+    }
+  }
+
+  requestAnimationFrame(update);
+}
+
+// Eventos
+function startGrowing(){
+  unlockAudio();
+  if(exploded){ 
+    resetBall(); 
+    gameoverDiv.textContent="";
+  }
+  if(!exploded){
+    growing=true;
+    messageDiv.textContent=holdMessage;
+    inflateSource=playSound(inflateBuffer,true);
+  }
+}
+function stopGrowing(){
+  if(!exploded){
+    growing=false;
+    messageDiv.textContent=releaseMessage;
+    if(inflateSource) inflateSource.stop();
+  }
+}
+
+// PC e mobile
+growButton.addEventListener("mousedown", startGrowing);
+growButton.addEventListener("mouseup", stopGrowing);
+growButton.addEventListener("mouseleave", stopGrowing); 
+growButton.addEventListener("touchstart",(e)=>{e.preventDefault(); startGrowing();});
+growButton.addEventListener("touchend",(e)=>{e.preventDefault(); stopGrowing();}); 
+
+// Carregar sons e iniciar jogo
+initSounds().then(()=>{ update(); });
+</script>
+</body>
+</html>
