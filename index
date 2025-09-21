@@ -81,9 +81,9 @@ async function loadSound(url){
 
 // Inicializar sons
 async function initSounds(){
-  rioBuffer = await loadSound('sons/rio.mp3');
-  inflateBuffer = await loadSound('sons/inflar.mp3');
-  popBuffer = await loadSound('sons/pop.mp3');
+  rioBuffer = await loadSound('rio.mp3');
+  inflateBuffer = await loadSound('inflar.mp3');
+  popBuffer = await loadSound('pop.mp3');
 }
 
 // Função para tocar som
@@ -187,7 +187,7 @@ function explodeBall(){
 
 // Rio rolando
 const img = new Image();
-img.src = 'Imagens/rio.png'; 
+img.src = 'rio.png'; 
 let imgX1=0, imgX2=canvas.width;
 const imgSpeed=2, imgHeight=100, imgY=groundY-40;
 function drawMovingImage(){
